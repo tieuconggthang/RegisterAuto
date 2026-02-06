@@ -38,6 +38,7 @@ function buildRequestHeaders(deviceId: string) {
   return buildHeaders(deviceId);
 }
 
+
 export async function registerFromCsv(filePath: string, ctx: WorkerCtx) {
   const { logId, logger } = ctx;
   const records = loadCsvRecords(filePath);

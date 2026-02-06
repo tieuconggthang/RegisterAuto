@@ -5,6 +5,7 @@ import { cleanupOldLogs, getTodayLogPath } from "./config/logFile";
 import { ensureLogRow } from "./repo/log.repo";
 import { createFileLogger } from "./config/logger";
 import { registerFromCsv } from "./services/register-from-csv.service";
+import { RegisterCsvWorker } from "./services/register-csv.worker";
 
 let isRunning = false;
 let watchTimer: NodeJS.Timeout | null = null;
@@ -86,8 +87,12 @@ async function runOnce(reason: string) {
     );
 
     const ctx = { logId, logger };
-    const reg = await registerFromCsv(csvPath, ctx);
 
+    // const reg = await registerFromCsv(csvPath, ctx);
+    /*Anh Thangtc sua de toi gian code*/
+
+    const worker = new RegisterCsvWorker({ logId, logger });
+    const reg = await worker.run(csvPath);
     logger.info({ reg }, "JOB_DONE");
 
     console.log(
