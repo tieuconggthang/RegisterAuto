@@ -3,7 +3,7 @@ import path from "path";
 import { ENV } from "./env";
 
 export function ensureLogDir() {
-  const dir = path.resolve(process.cwd(), "data", "logs");
+  const dir = path.resolve(process.cwd(), "logs");
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

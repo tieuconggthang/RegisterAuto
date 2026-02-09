@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  auto-register:
+    image: auto-register-csv
+    container_name: auto-register-csv
+    restart: always
+
+    # Mount CSV + env
+    volumes:
+      - ./data:/app/data
+      - ./config/.env:/app/.env
+
+    # Env cho app (chỉ các biến cần thiết)
+    environment:
+      CSV_PATH: /app/data/users.csv
+      NODE_ENV: production
+
+    # (optional) log gọn
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

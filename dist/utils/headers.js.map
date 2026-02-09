@@ -1,0 +1,1 @@
+{"version":3,"file":"headers.js","sourceRoot":"","sources":["../../src/utils/headers.ts"],"names":[],"mappings":";;AAEA,oCAQC;AAVD,mCAAoC;AAEpC,SAAgB,YAAY,CAAC,QAAgB;IAC3C,OAAO;QACL,cAAc,EAAE,kBAAkB;QAClC,aAAa,EAAE,QAAQ;QACvB,eAAe,EAAE,KAAK;QACtB,iBAAiB,EAAE,IAAI;QACvB,iBAAiB,EAAE,IAAA,mBAAU,GAAE;KAChC,CAAC;AACJ,CAAC"}
