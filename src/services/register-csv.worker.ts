@@ -40,9 +40,9 @@ export type WorkerCtx = {
 /* ================= WORKER CLASS ================= */
 
 export class RegisterCsvWorker {
-    private readonly appLLoger : AppLogger;
+    private readonly appLLoger: AppLogger;
     private readonly logger = Log.getLogger("RegisterCsvWorker");
-    private readonly logId : number
+    private readonly logId: number
     private readonly otpTimeout: number;
     private readonly otpPoll: number;
     private readonly verifyRetry: number;
@@ -99,15 +99,15 @@ export class RegisterCsvWorker {
         if (!valid || !phone) {
             this.skipped++;
             this.logger.warn("ROW_SKIPPED", {
-  row: index + 1,
-  reason,
-});
+                row: index + 1,
+                reason,
+            });
             return;
         }
 
         this.seenPhones.add(phone);
 
-     
+
 
         try {
             const headers = this.buildRequestHeaders(deviceId);
@@ -125,9 +125,9 @@ export class RegisterCsvWorker {
                 if (msg.toLowerCase().includes("exists")) {
                     this.skipped++;
                     this.logger.warn("ROW_SKIPPED", {
-  row: index + 1,
-  reason,
-});;
+                        row: index + 1,
+                        reason,
+                    });;
                     return;
                 }
                 throw new Error(`REGISTER_FAIL: ${msg}`);
