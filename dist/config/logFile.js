@@ -10,7 +10,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const env_1 = require("./env");
 function ensureLogDir() {
-    const dir = path_1.default.resolve(process.cwd(), "data", "logs");
+    const dir = path_1.default.resolve(process.cwd(), "logs");
     fs_1.default.mkdirSync(dir, { recursive: true });
     return dir;
 }

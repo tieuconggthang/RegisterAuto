@@ -54,11 +54,10 @@ async function getOtpViaAuthServiceDebug(phone, headers) {
     }
     return redis?.pathTried ? redis : (pending || { otp: null, source: "none" });
 }
-async function waitForOtpViaAuthServiceDebug(phone, headers, timeoutMs = env_1.ENV.OTP_TIMEOUT_MS, pollMs = env_1.ENV.OTP_POLL_MS, logger) {
+async function waitForOtpViaAuthServiceDebug(phone, headers, timeoutMs = env_1.ENV.OTP_TIMEOUT_MS, pollMs = env_1.ENV.OTP_POLL_MS, logger, minTimestamp = 0) {
     const start = Date.now();
     let lastOtp = null;
     let attempts = 0;
-    logger?.debug?.({ timeoutMs, pollMs }, "OTP_POLL_LOOP_BEGIN");
     while (Date.now() - start < timeoutMs) {
         attempts++;
         let out;
@@ -67,28 +66,46 @@ async function waitForOtpViaAuthServiceDebug(phone, headers, timeoutMs = env_1.E
         }
         catch (err) {
             out = { otp: null, source: "none", reason: err?.message || String(err) };
-            logger?.error?.({ attempts, err }, "OTP_POLL_EXCEPTION");
         }
         const shouldLogTick = env_1.ENV.LOG_VERBOSE || attempts === 1 || attempts % 10 === 0;
-        if (shouldLogTick) {
-            logger?.debug?.({
-                attempts,
-                elapsedMs: Date.now() - start,
-                source: out.source,
-                httpStatus: out.httpStatus,
-                pathTried: out.pathTried,
-                hasOtp: !!out.otp,
-                reason: out.reason,
-                body: out.raw,
-            }, "OTP_POLL_TICK");
-        }
-        if (out.otp && out.otp !== lastOtp) {
-            logger?.info?.({ attempts, elapsedMs: Date.now() - start, source: out.source, httpStatus: out.httpStatus, pathTried: out.pathTried }, "OTP_POLL_GOT_OTP");
-            return out;
+        if (out.otp) {
+            let isFresh = true;
+            let ts = 0;
+            const rawData = out.raw?.data;
+            const msg = rawData?.msg;
+            if (msg?.receivedAt) {
+                ts = new Date(msg.receivedAt).getTime();
+            }
+            else if (msg?.timestamp) {
+                ts = Number(msg.timestamp);
+            }
+            if (out.otp !== lastOtp || attempts % 10 === 0) {
+                if (logger) {
+                    logger.info({
+                        phone,
+                        otp: out.otp,
+                        tsRaw: msg?.receivedAt || msg?.timestamp,
+                        tsParsed: ts,
+                        minTs: minTimestamp,
+                        isFresh: (minTimestamp === 0 || ts >= minTimestamp),
+                        serverTime: new Date().toISOString()
+                    }, "OTP_POLL_DEBUG");
+                }
+            }
+            if (minTimestamp > 0 && ts > 0 && ts < minTimestamp) {
+                if (logger) {
+                    logger.warn({ otp: out.otp, ts: new Date(ts).toISOString() }, "OTP_OLD_ACCEPTED_BY_USER_REQUEST");
+                }
+            }
+            if (isFresh) {
+                if (out.otp !== lastOtp) {
+                    return out;
+                }
+            }
+            lastOtp = out.otp;
         }
         await new Promise((r) => setTimeout(r, pollMs));
     }
-    logger?.warn?.({ attempts, elapsedMs: Date.now() - start }, "OTP_POLL_TIMEOUT");
     return { otp: null, source: "none", reason: "timeout" };
 }
 //# sourceMappingURL=otp-authservice.service.js.map

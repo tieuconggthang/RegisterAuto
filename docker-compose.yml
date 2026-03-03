@@ -2,21 +2,24 @@ version: "3.8"
 
 services:
   auto-register:
+    build: .
     image: auto-register-csv
     container_name: auto-register-csv
     restart: always
 
-    # Mount CSV + env
     volumes:
-      - ./data:/app/data
-      - ./config/.env:/app/.env
+      - ./users.csv:/app/users.csv
+      - ./.env:/app/.env
 
-    # Env cho app (chỉ các biến cần thiết)
     environment:
-      CSV_PATH: /app/data/users.csv
+      CSV_PATH: /app/users.csv
       NODE_ENV: production
+      MYSQL_HOST: host.docker.internal
+      BASE_URL: http://host.docker.internal:3001
 
-    # (optional) log gọn
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     logging:
       driver: "json-file"
       options:

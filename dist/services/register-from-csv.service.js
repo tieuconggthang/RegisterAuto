@@ -28,7 +28,6 @@ async function registerFromCsv(filePath, ctx) {
         const { valid, phone, reason } = (0, csv_helpers_1.validateRow)(row, seenPhones);
         if (!valid || !phone) {
             skipped++;
-            logger.warn({ row: i + 1, reason }, "ROW_SKIPPED");
             continue;
         }
         seenPhones.add(phone);
@@ -94,7 +93,6 @@ async function registerFromCsv(filePath, ctx) {
             catch { }
         }
     }
-    logger.info({ success, pending, fail, skipped }, "CSV_SUMMARY");
     return { success, pending, fail, skipped };
 }
 //# sourceMappingURL=register-from-csv.service.js.map

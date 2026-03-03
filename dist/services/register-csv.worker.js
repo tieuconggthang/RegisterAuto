@@ -27,15 +27,22 @@ class RegisterCsvWorker {
     /* ================= PUBLIC API ================= */
     async run(filePath) {
         const records = (0, csv_helpers_1.loadCsvRecords)(filePath);
+        const limit = Number(env_1.ENV.CONCURRENCY) || 3;
+        // this.logger.info(`STARTING_WORKER_CONCURRENCY`, { limit, total: records.length });
+        const activePromises = [];
         for (let i = 0; i < records.length; i++) {
-            await this.processRow(records[i], i);
+            if (activePromises.length >= limit) {
+                await Promise.race(activePromises);
+            }
+            const p = this.processRow(records[i], i).then(() => { });
+            const wrapper = p.finally(() => {
+                const idx = activePromises.indexOf(wrapper);
+                if (idx !== -1)
+                    activePromises.splice(idx, 1);
+            });
+            activePromises.push(wrapper);
         }
-        this.logger.info("CSV_SUMMARY", {
-            success: this.success,
-            pending: this.pending,
-            fail: this.fail,
-            skipped: this.skipped,
-        });
+        await Promise.all(activePromises);
         return {
             success: this.success,
             pending: this.pending,
@@ -52,16 +59,14 @@ class RegisterCsvWorker {
         const { valid, phone, reason } = (0, csv_helpers_1.validateRow)(row, this.seenPhones);
         if (!valid || !phone) {
             this.skipped++;
-            this.logger.warn("ROW_SKIPPED", {
-                row: index + 1,
-                reason,
-            });
+            // this.logger.warn("ROW_SKIPPED", { row: index + 1, reason });
             return;
         }
         this.seenPhones.add(phone);
         try {
             const headers = this.buildRequestHeaders(deviceId);
             const payload = (0, csv_helpers_1.buildPayload)(row, phone);
+            const startTime = Date.now();
             const resp = await (0, auth_api_1.registerUser)(payload, headers);
             const registerApi = (0, csv_helpers_1.parseApiRes)(resp?.data);
             if (!registerApi) {
@@ -69,36 +74,29 @@ class RegisterCsvWorker {
             }
             if (!registerApi.isSucceed) {
                 const msg = registerApi.message ?? "REGISTER_FAILED";
-                if (msg.toLowerCase().includes("exists")) {
-                    this.skipped++;
-                    this.logger.warn("ROW_SKIPPED", {
-                        row: index + 1,
-                        reason,
-                    });
-                    ;
-                    return;
+                if (msg.toLowerCase().includes("exists") || msg.toLowerCase().includes("tồn tại")) {
+                    // User wants to see this as failure log
+                    // Proceed to throw below
                 }
                 throw new Error(`REGISTER_FAIL: ${msg}`);
             }
-            // Wait OTP
-            const otpRec = await (0, otp_authservice_service_1.waitForOtpViaAuthServiceDebug)(phone, headers, this.otpTimeout, this.otpPoll, this.appLLoger);
+            const otpRec = await (0, otp_authservice_service_1.waitForOtpViaAuthServiceDebug)(phone, headers, this.otpTimeout, this.otpPoll, this.appLLoger, startTime);
             if (!otpRec?.otp) {
                 this.pending++;
                 await this.auditPending(phone);
-                this.logger.warn("PENDING_OTP");
+                // this.logger.warn("PENDING_OTP", { phone, reason: otpRec.reason });
                 return;
             }
             await this.verifyOtp(phone, String(otpRec.otp), headers);
             this.success++;
             await this.auditSuccess(phone, deviceId);
-            this.logger.info("REGISTER_OK");
+            // this.logger.info("REGISTER_OK", { phone, otp: otpRec.otp });
         }
         catch (err) {
             this.fail++;
-            const msg = err?.message || String(err);
-            this.logger.error("ROW_FAIL", err);
-            // log.error({ err: msg }, "ROW_FAIL");
-            await this.auditFail(phone, deviceId, msg);
+            const errorMsg = err?.message || String(err);
+            // this.logger.error("ROW_FAIL", { phone, error: errorMsg });
+            await this.auditFail(phone, deviceId, errorMsg);
         }
     }
     async verifyOtp(phone, otp, headers) {
@@ -112,7 +110,6 @@ class RegisterCsvWorker {
         }
         throw new Error(`VERIFY_FAIL_AFTER_RETRY: ${lastMsg}`);
     }
-    /* ================= AUDIT ================= */
     async auditPending(phone) {
         const userId = await (0, audit_repo_1.findUserIdByPhone)(phone).catch(() => null);
         await (0, audit_repo_1.insertUserAction)({

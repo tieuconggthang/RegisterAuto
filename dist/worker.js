@@ -22,7 +22,7 @@ async function runOnce(reason) {
         try {
             const { filePath } = (0, logFile_1.getTodayLogPath)();
             const logger = (0, logger_1.createFileLogger)(filePath);
-            logger.warn({ reason }, "JOB_SKIPPED_ALREADY_RUNNING");
+            // logger.warn({ reason }, "JOB_SKIPPED_ALREADY_RUNNING");
         }
         catch {
         }
@@ -39,27 +39,11 @@ async function runOnce(reason) {
             logId = await (0, log_repo_1.ensureLogRow)(fileName, filePath);
         }
         catch (err) {
-            baseLogger.error({ err }, "LOG_ROW_UPSERT_FAIL");
+            // baseLogger.error({ err }, "LOG_ROW_UPSERT_FAIL");
         }
         const logger = baseLogger.child({ logId });
         if (!started) {
             started = true;
-            logger.info({
-                config: {
-                    BASE_URL: env_1.ENV.BASE_URL,
-                    CSV_PATH: env_1.ENV.CSV_PATH,
-                    INTERVAL_MS: env_1.ENV.INTERVAL_MS,
-                    RUN_ONCE: env_1.ENV.RUN_ONCE,
-                    OTP_TIMEOUT_MS: env_1.ENV.OTP_TIMEOUT_MS,
-                    OTP_POLL_MS: env_1.ENV.OTP_POLL_MS,
-                    OTP_VERIFY_RETRY: env_1.ENV.OTP_VERIFY_RETRY,
-                    OTP_DEBUG_PATH_PENDING: env_1.ENV.OTP_DEBUG_PATH_PENDING,
-                    OTP_DEBUG_PATH_REDIS: env_1.ENV.OTP_DEBUG_PATH_REDIS,
-                    LOG_LEVEL: env_1.ENV.LOG_LEVEL,
-                    LOG_VERBOSE: env_1.ENV.LOG_VERBOSE,
-                    LOG_HTTP: env_1.ENV.LOG_HTTP,
-                },
-            }, "WORKER_CONFIG");
         }
         let st = null;
         try {
@@ -68,31 +52,23 @@ async function runOnce(reason) {
         catch {
             st = null;
         }
-        logger.info({
-            reason,
-            csvPath,
-            csvExists: !!st,
-            csvSize: st?.size,
-            csvMtimeMs: st?.mtimeMs,
-        }, "JOB_START");
         const ctx = { logId, logger };
         // const reg = await registerFromCsv(csvPath, ctx);
         /*Anh Thangtc sua de toi gian code*/
         const worker = new register_csv_worker_1.RegisterCsvWorker({ logId, logger });
         const reg = await worker.run(csvPath);
-        logger.info({ reg }, "JOB_DONE");
+        // logger.info({ reg }, "JOB_DONE");
         console.log(`REGISTER summary: success=${reg.success} pending=${reg.pending} fail=${reg.fail}`);
     }
     catch (err) {
         try {
             const { filePath } = (0, logFile_1.getTodayLogPath)();
             const logger = (0, logger_1.createFileLogger)(filePath);
-            logger.error({ reason, csvPath, err }, "JOB_CRASH");
+            // logger.error({ reason, csvPath, err }, "JOB_CRASH");
         }
         catch {
             // ignore
         }
-        console.log("REGISTER summary: success=0 pending=0 fail=0");
     }
     finally {
         isRunning = false;
@@ -108,7 +84,7 @@ async function startWorker() {
         try {
             const { filePath } = (0, logFile_1.getTodayLogPath)();
             const logger = (0, logger_1.createFileLogger)(filePath);
-            logger.info({ csvPath }, "CSV_WATCH_START");
+            // logger.info({ csvPath }, "CSV_WATCH_START");
         }
         catch {
         }
@@ -124,7 +100,7 @@ async function startWorker() {
         try {
             const { filePath } = (0, logFile_1.getTodayLogPath)();
             const logger = (0, logger_1.createFileLogger)(filePath);
-            logger.warn({ csvPath }, "CSV_NOT_FOUND_AT_STARTUP");
+            // logger.warn({ csvPath }, "CSV_NOT_FOUND_AT_STARTUP");
         }
         catch {
             // ignore

@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 
 dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
-  override: true,
+  override: false,
   debug: false,
   quiet: true,
 } as any);
@@ -27,10 +27,10 @@ function bool(v: any, def: boolean) {
 }
 
 export const ENV = {
-  
+
   BASE_URL: str(process.env.BASE_URL, "http://localhost:3001"),
 
- 
+
   MYSQL_HOST: str(process.env.MYSQL_HOST, "127.0.0.1"),
   MYSQL_PORT: num(process.env.MYSQL_PORT, 3306),
   MYSQL_USER: str(process.env.MYSQL_USER, "root"),
@@ -43,7 +43,7 @@ export const ENV = {
   CONCURRENCY: num(process.env.CONCURRENCY, 5),
   RUN_ONCE: bool(process.env.RUN_ONCE, false),
 
-  
+
   OTP_TIMEOUT_MS: num(process.env.OTP_TIMEOUT_MS, 60_000),
   OTP_POLL_MS: num(process.env.OTP_POLL_MS, 500),
   OTP_VERIFY_RETRY: num(process.env.OTP_VERIFY_RETRY, 5),
@@ -53,8 +53,8 @@ export const ENV = {
 
   LOG_RETENTION_DAYS: num(process.env.LOG_RETENTION_DAYS, 7),
 
- 
-  LOG_LEVEL: str(process.env.LOG_LEVEL, "info"), 
+
+  LOG_LEVEL: str(process.env.LOG_LEVEL, "info"),
   LOG_VERBOSE: bool(process.env.LOG_VERBOSE, true),
   LOG_HTTP: bool(process.env.LOG_HTTP, true),
   LOG_OTP_PLAINTEXT: bool(process.env.LOG_OTP_PLAINTEXT, false),
