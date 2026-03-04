@@ -3,61 +3,99 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getOtpViaAuthServiceDebug = getOtpViaAuthServiceDebug;
 exports.waitForOtpViaAuthServiceDebug = waitForOtpViaAuthServiceDebug;
 const env_1 = require("../config/env");
-const auth_api_1 = require("../api/auth.api");
 function normalizeOtp(v) {
     if (v == null)
         return null;
-    const s = String(v).trim();
-    return s ? s : null;
-}
-function parseApiRes(body) {
-    if (!body || typeof body !== "object")
-        return null;
-    if (typeof body.isSucceed === "boolean")
-        return body;
+    if (typeof v === "string") {
+        const s = v.trim();
+        if (!s)
+            return null;
+        try {
+            return normalizeOtp(JSON.parse(s));
+        }
+        catch {
+            return /^\d{4,8}$/.test(s) ? s : null;
+        }
+    }
+    if (typeof v === "number") {
+        const s = String(v).trim();
+        return /^\d{4,8}$/.test(s) ? s : null;
+    }
+    if (typeof v === "object") {
+        const obj = v;
+        const directCandidates = [obj.otp, obj.smsOtp, obj.otpKeyOtp, obj.code, obj.value];
+        for (const candidate of directCandidates) {
+            const parsed = normalizeOtp(candidate);
+            if (parsed)
+                return parsed;
+        }
+        const nestedCandidates = [obj.msg, obj.data, obj.smsLatest, obj.payload];
+        for (const candidate of nestedCandidates) {
+            const parsed = normalizeOtp(candidate);
+            if (parsed)
+                return parsed;
+        }
+    }
     return null;
 }
-async function tryGetRedisOtp(phone, headers) {
-    const resp = await (0, auth_api_1.getDebugRedisOtpFromAuthService)(phone, headers);
-    if (!resp || resp.status >= 400) {
+function buildRedisKey(phone) {
+    return `${env_1.ENV.OTP_REDIS_KEY_PREFIX}${String(phone || "").trim()}`;
+}
+async function tryGetUpstashOtp(phone) {
+    const upstashUrl = String(env_1.ENV.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
+    const upstashToken = String(env_1.ENV.UPSTASH_REDIS_REST_TOKEN || "").trim();
+    const key = buildRedisKey(phone);
+    if (!upstashUrl || !upstashToken) {
         return {
             otp: null,
             source: "none",
-            httpStatus: resp?.status,
-            pathTried: env_1.ENV.OTP_DEBUG_PATH_REDIS,
-            reason: `http_${resp?.status}`,
-            raw: resp?.data,
+            pathTried: "upstash",
+            reason: "upstash_not_configured",
         };
     }
-    const api = parseApiRes(resp.data);
-    const otp = normalizeOtp(api?.data?.otp);
-    const msg = api?.message;
+    const url = `${upstashUrl}/get/${encodeURIComponent(key)}`;
+    const response = await fetch(url, {
+        method: "GET",
+        headers: {
+            Authorization: `Bearer ${upstashToken}`,
+        },
+    });
+    const contentType = response.headers.get("content-type") || "";
+    let raw = null;
+    if (contentType.includes("application/json")) {
+        raw = await response.json();
+    }
+    else {
+        raw = await response.text();
+    }
+    const resultValue = raw && typeof raw === "object" ? raw.result : null;
+    const otp = normalizeOtp(resultValue);
     return {
         otp,
-        source: otp ? "redis" : "none",
-        httpStatus: resp.status,
-        pathTried: env_1.ENV.OTP_DEBUG_PATH_REDIS,
-        reason: otp ? "ok" : (typeof msg === "string" ? msg : "no_otp"),
-        raw: resp.data,
+        source: otp ? "upstash" : "none",
+        httpStatus: response.status,
+        pathTried: url,
+        reason: otp ? "ok" : "no_otp",
+        raw,
     };
 }
 async function getOtpViaAuthServiceDebug(phone, headers) {
-    let pending = null;
-    let redis = null;
     try {
-        redis = await tryGetRedisOtp(phone, headers);
-        if (redis.otp)
-            return redis;
+        return await tryGetUpstashOtp(phone);
     }
     catch (err) {
-        redis = { otp: null, source: "none", pathTried: env_1.ENV.OTP_DEBUG_PATH_REDIS, reason: err?.message || String(err) };
+        return {
+            otp: null,
+            source: "none",
+            pathTried: "upstash",
+            reason: err?.message || String(err),
+        };
     }
-    return redis?.pathTried ? redis : (pending || { otp: null, source: "none" });
 }
-async function waitForOtpViaAuthServiceDebug(phone, headers, timeoutMs = env_1.ENV.OTP_TIMEOUT_MS, pollMs = env_1.ENV.OTP_POLL_MS, logger, minTimestamp = 0) {
+async function waitForOtpViaAuthServiceDebug(phone, headers, timeoutMs = env_1.ENV.OTP_TIMEOUT_MS, pollMs = env_1.ENV.OTP_POLL_MS, logger) {
     const start = Date.now();
-    let lastOtp = null;
     let attempts = 0;
+    logger?.debug?.({ timeoutMs, pollMs }, "OTP_POLL_LOOP_BEGIN");
     while (Date.now() - start < timeoutMs) {
         attempts++;
         let out;
@@ -66,46 +104,34 @@ async function waitForOtpViaAuthServiceDebug(phone, headers, timeoutMs = env_1.E
         }
         catch (err) {
             out = { otp: null, source: "none", reason: err?.message || String(err) };
+            logger?.error?.({ attempts, err }, "OTP_POLL_EXCEPTION");
         }
         const shouldLogTick = env_1.ENV.LOG_VERBOSE || attempts === 1 || attempts % 10 === 0;
+        if (shouldLogTick) {
+            logger?.debug?.({
+                attempts,
+                elapsedMs: Date.now() - start,
+                source: out.source,
+                httpStatus: out.httpStatus,
+                pathTried: out.pathTried,
+                hasOtp: !!out.otp,
+                reason: out.reason,
+                body: out.raw,
+            }, "OTP_POLL_TICK");
+        }
         if (out.otp) {
-            let isFresh = true;
-            let ts = 0;
-            const rawData = out.raw?.data;
-            const msg = rawData?.msg;
-            if (msg?.receivedAt) {
-                ts = new Date(msg.receivedAt).getTime();
-            }
-            else if (msg?.timestamp) {
-                ts = Number(msg.timestamp);
-            }
-            if (out.otp !== lastOtp || attempts % 10 === 0) {
-                if (logger) {
-                    logger.info({
-                        phone,
-                        otp: out.otp,
-                        tsRaw: msg?.receivedAt || msg?.timestamp,
-                        tsParsed: ts,
-                        minTs: minTimestamp,
-                        isFresh: (minTimestamp === 0 || ts >= minTimestamp),
-                        serverTime: new Date().toISOString()
-                    }, "OTP_POLL_DEBUG");
-                }
-            }
-            if (minTimestamp > 0 && ts > 0 && ts < minTimestamp) {
-                if (logger) {
-                    logger.warn({ otp: out.otp, ts: new Date(ts).toISOString() }, "OTP_OLD_ACCEPTED_BY_USER_REQUEST");
-                }
-            }
-            if (isFresh) {
-                if (out.otp !== lastOtp) {
-                    return out;
-                }
-            }
-            lastOtp = out.otp;
+            logger?.info?.({
+                attempts,
+                elapsedMs: Date.now() - start,
+                source: out.source,
+                httpStatus: out.httpStatus,
+                pathTried: out.pathTried,
+            }, "OTP_POLL_GOT_OTP");
+            return out;
         }
         await new Promise((r) => setTimeout(r, pollMs));
     }
+    logger?.warn?.({ attempts, elapsedMs: Date.now() - start }, "OTP_POLL_TIMEOUT");
     return { otp: null, source: "none", reason: "timeout" };
 }
 //# sourceMappingURL=otp-authservice.service.js.map

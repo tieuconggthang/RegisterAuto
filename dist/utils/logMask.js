@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.normalizePhone = void 0;
 exports.maskOtp = maskOtp;
 exports.maskPassword = maskPassword;
-exports.normalizePhone = normalizePhone;
 exports.safeJson = safeJson;
 const env_1 = require("../config/env");
 function maskOtp(otp) {
@@ -25,9 +25,8 @@ function maskPassword(pw) {
         return s;
     return `***len=${s.length}`;
 }
-function normalizePhone(raw) {
-    return String(raw || "").replace(/\D/g, "");
-}
+var phone_1 = require("./phone");
+Object.defineProperty(exports, "normalizePhone", { enumerable: true, get: function () { return phone_1.normalizePhone; } });
 function safeJson(obj, maxLen = 2000) {
     // keep logs small
     if (obj == null)

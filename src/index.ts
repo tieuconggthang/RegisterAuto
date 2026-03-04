@@ -1,6 +1,12 @@
 import { startWorker } from "./worker";
 
-startWorker().catch((err) => {
-  console.error("❌ Worker crashed:", err?.message || err);
-  process.exit(1);
-});
+console.log("🚀 Starting RegisterAuto...");
+
+startWorker()
+  .then(() => {
+    console.log("✅ startWorker() đã được gọi xong.");
+  })
+  .catch((err) => {
+    console.error("❌ Worker crashed:", err?.stack || err?.message || err);
+    process.exit(1);
+  });

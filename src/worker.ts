@@ -2,7 +2,6 @@ import fs from "fs";
 import path from "path";
 import { ENV } from "./config/env";
 import { cleanupOldLogs, getTodayLogPath } from "./config/logFile";
-import { ensureLogRow } from "./repo/log.repo";
 import { createFileLogger } from "./config/logger";
 import { RegisterCsvWorker } from "./services/register-csv.worker";
 
@@ -16,66 +15,47 @@ function resolveCsvPath() {
 
 async function runOnce(reason: string) {
   if (isRunning) {
-    try {
-      const { filePath } = getTodayLogPath();
-      const logger = createFileLogger(filePath);
-      // logger.warn({ reason }, "JOB_SKIPPED_ALREADY_RUNNING");
-    } catch {
-
-    }
+    console.log(`⏭️ Bỏ qua runOnce(${reason}) vì job đang chạy.`);
     return;
   }
-  isRunning = true;
 
+  isRunning = true;
   const csvPath = resolveCsvPath();
 
   try {
     cleanupOldLogs();
 
-    const { fileName, filePath } = getTodayLogPath();
-
+    const { filePath } = getTodayLogPath();
     const baseLogger = createFileLogger(filePath);
-    let logId = -1;
-    try {
-      logId = await ensureLogRow(fileName, filePath);
-    } catch (err: any) {
-      // baseLogger.error({ err }, "LOG_ROW_UPSERT_FAIL");
-    }
-
-    const logger = baseLogger.child({ logId });
+    const logger = baseLogger.child({ logId: -1 });
 
     if (!started) {
       started = true;
+      console.log("📦 Worker config:", {
+        csvPath,
+        runOnce: ENV.RUN_ONCE,
+        intervalMs: ENV.INTERVAL_MS,
+        concurrency: ENV.CONCURRENCY,
+        otpTimeoutMs: ENV.OTP_TIMEOUT_MS,
+        otpPollMs: ENV.OTP_POLL_MS,
+      });
     }
 
-    let st: fs.Stats | null = null;
-    try {
-      st = fs.existsSync(csvPath) ? fs.statSync(csvPath) : null;
-    } catch {
-      st = null;
-    }
+    const exists = fs.existsSync(csvPath);
+    console.log(`📄 CSV path: ${csvPath} | exists=${exists}`);
 
+    const worker = new RegisterCsvWorker({
+      logId: -1,
+      logger,
+    });
 
-    const ctx = { logId, logger };
-
-    // const reg = await registerFromCsv(csvPath, ctx);
-    /*Anh Thangtc sua de toi gian code*/
-
-    const worker = new RegisterCsvWorker({ logId, logger });
     const reg = await worker.run(csvPath);
-    // logger.info({ reg }, "JOB_DONE");
 
     console.log(
-      `REGISTER summary: success=${reg.success} pending=${reg.pending} fail=${reg.fail}`
+      `REGISTER summary: success=${reg.success} pending=${reg.pending} fail=${reg.fail} skipped=${reg.skipped}`
     );
   } catch (err: any) {
-    try {
-      const { filePath } = getTodayLogPath();
-      const logger = createFileLogger(filePath);
-      // logger.error({ reason, csvPath, err }, "JOB_CRASH");
-    } catch {
-      // ignore
-    }
+    console.error("❌ runOnce crash:", err?.stack || err?.message || err);
   } finally {
     isRunning = false;
   }
@@ -84,34 +64,40 @@ async function runOnce(reason: string) {
 export async function startWorker() {
   const csvPath = resolveCsvPath();
 
+  console.log("🟢 startWorker()");
+  console.log("   cwd =", process.cwd());
+  console.log("   csv =", csvPath);
+  console.log("   RUN_ONCE =", ENV.RUN_ONCE);
+
   await runOnce("startup");
 
-  if (ENV.RUN_ONCE) return;
+  if (ENV.RUN_ONCE) {
+    console.log("🏁 RUN_ONCE=true nên process sẽ kết thúc sau lần chạy đầu.");
+    return;
+  }
 
-  setInterval(() => runOnce("interval"), ENV.INTERVAL_MS);
+  setInterval(() => {
+    runOnce("interval").catch((err) => {
+      console.error("❌ interval run fail:", err?.message || err);
+    });
+  }, ENV.INTERVAL_MS);
+
+  console.log(`⏲️ Interval đã được bật: ${ENV.INTERVAL_MS}ms`);
 
   if (fs.existsSync(csvPath)) {
-
-    try {
-      const { filePath } = getTodayLogPath();
-      const logger = createFileLogger(filePath);
-      // logger.info({ csvPath }, "CSV_WATCH_START");
-    } catch {
-    }
-
     fs.watch(csvPath, (eventType) => {
       if (eventType === "change") {
         if (watchTimer) clearTimeout(watchTimer);
-        watchTimer = setTimeout(() => runOnce("csv changed"), 1200);
+        watchTimer = setTimeout(() => {
+          runOnce("csv changed").catch((err) => {
+            console.error("❌ csv changed run fail:", err?.message || err);
+          });
+        }, 1200);
       }
     });
+
+    console.log("👀 Đang watch file CSV...");
   } else {
-    try {
-      const { filePath } = getTodayLogPath();
-      const logger = createFileLogger(filePath);
-      // logger.warn({ csvPath }, "CSV_NOT_FOUND_AT_STARTUP");
-    } catch {
-      // ignore
-    }
+    console.warn(`⚠️ Không tìm thấy CSV tại startup: ${csvPath}`);
   }
 }

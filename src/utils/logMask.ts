@@ -16,9 +16,7 @@ export function maskPassword(pw?: string | null): string | null {
   return `***len=${s.length}`;
 }
 
-export function normalizePhone(raw: string): string {
-  return String(raw || "").replace(/\D/g, "");
-}
+export { normalizePhone } from "./phone";
 
 export function safeJson(obj: any, maxLen = 2000): any {
   // keep logs small

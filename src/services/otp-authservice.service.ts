@@ -1,12 +1,8 @@
 import { ENV } from "../config/env";
-import {
-  getDebugRedisOtpFromAuthService,
-  type ApiRes,
-} from "../api/auth.api";
 
 export type DebugOtpResult = {
   otp: string | null;
-  source: "pending" | "redis" | "none";
+  source: "upstash" | "redis" | "none";
   httpStatus?: number | null;
   pathTried?: string;
   reason?: string;
@@ -22,67 +18,113 @@ type Logger = {
 
 function normalizeOtp(v: any): string | null {
   if (v == null) return null;
-  const s = String(v).trim();
-  return s ? s : null;
-}
 
-function parseApiRes(body: any): ApiRes | null {
-  if (!body || typeof body !== "object") return null;
-  if (typeof body.isSucceed === "boolean") return body as ApiRes;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return null;
+
+    try {
+      return normalizeOtp(JSON.parse(s));
+    } catch {
+      return /^\d{4,8}$/.test(s) ? s : null;
+    }
+  }
+
+  if (typeof v === "number") {
+    const s = String(v).trim();
+    return /^\d{4,8}$/.test(s) ? s : null;
+  }
+
+  if (typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+
+    const directCandidates = [obj.otp, obj.smsOtp, obj.otpKeyOtp, obj.code, obj.value];
+    for (const candidate of directCandidates) {
+      const parsed = normalizeOtp(candidate);
+      if (parsed) return parsed;
+    }
+
+    const nestedCandidates = [obj.msg, obj.data, obj.smsLatest, obj.payload];
+    for (const candidate of nestedCandidates) {
+      const parsed = normalizeOtp(candidate);
+      if (parsed) return parsed;
+    }
+  }
+
   return null;
 }
 
 
+function buildRedisKey(phone: string) {
+  return `${ENV.OTP_REDIS_KEY_PREFIX}${String(phone || "").trim()}`;
+}
 
-async function tryGetRedisOtp(phone: string, headers: any): Promise<DebugOtpResult> {
-  const resp = await getDebugRedisOtpFromAuthService(phone, headers);
-  if (!resp || resp.status >= 400) {
+async function tryGetUpstashOtp(phone: string): Promise<DebugOtpResult> {
+  const upstashUrl = String(ENV.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
+  const upstashToken = String(ENV.UPSTASH_REDIS_REST_TOKEN || "").trim();
+  const key = buildRedisKey(phone);
+
+  if (!upstashUrl || !upstashToken) {
     return {
       otp: null,
       source: "none",
-      httpStatus: resp?.status,
-      pathTried: ENV.OTP_DEBUG_PATH_REDIS,
-      reason: `http_${resp?.status}`,
-      raw: resp?.data,
+      pathTried: "upstash",
+      reason: "upstash_not_configured",
     };
   }
 
-  const api = parseApiRes(resp.data);
-  const otp = normalizeOtp((api as any)?.data?.otp);
-  const msg = (api as any)?.message;
+  const url = `${upstashUrl}/get/${encodeURIComponent(key)}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${upstashToken}`,
+    },
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+  let raw: any = null;
+
+  if (contentType.includes("application/json")) {
+    raw = await response.json();
+  } else {
+    raw = await response.text();
+  }
+
+  const resultValue = raw && typeof raw === "object" ? raw.result : null;
+  const otp = normalizeOtp(resultValue);
+
   return {
     otp,
-    source: otp ? "redis" : "none",
-    httpStatus: resp.status,
-    pathTried: ENV.OTP_DEBUG_PATH_REDIS,
-    reason: otp ? "ok" : (typeof msg === "string" ? msg : "no_otp"),
-    raw: resp.data,
+    source: otp ? "upstash" : "none",
+    httpStatus: response.status,
+    pathTried: url,
+    reason: otp ? "ok" : "no_otp",
+    raw,
   };
 }
 
-export async function getOtpViaAuthServiceDebug(phone: string, headers: any): Promise<DebugOtpResult> {
-  let pending: DebugOtpResult | null = null;
-  let redis: DebugOtpResult | null = null;
-  try {
-    redis = await tryGetRedisOtp(phone, headers);
-    if (redis.otp) return redis;
-  } catch (err: any) {
-    redis = { otp: null, source: "none", pathTried: ENV.OTP_DEBUG_PATH_REDIS, reason: err?.message || String(err) };
-  }
 
-  return redis?.pathTried ? redis : (pending || { otp: null, source: "none" });
+export async function getOtpViaAuthServiceDebug(phone: string, headers: any): Promise<DebugOtpResult> {
+  try {
+    return await tryGetUpstashOtp(phone);
+  } catch (err: any) {
+    return {
+      otp: null,
+      source: "none",
+      pathTried: "upstash",
+      reason: err?.message || String(err),
+    };
+  }
 }
 
 export async function waitForOtpViaAuthServiceDebug(
   phone: string,
   headers: any,
   timeoutMs: number = ENV.OTP_TIMEOUT_MS,
-  pollMs: number = ENV.OTP_POLL_MS
-  ,
+  pollMs: number = ENV.OTP_POLL_MS,
   logger?: Logger
 ): Promise<DebugOtpResult> {
   const start = Date.now();
-  let lastOtp: string | null = null;
   let attempts = 0;
 
   logger?.debug?.({ timeoutMs, pollMs }, "OTP_POLL_LOOP_BEGIN");
@@ -93,7 +135,6 @@ export async function waitForOtpViaAuthServiceDebug(
     try {
       out = await getOtpViaAuthServiceDebug(phone, headers);
     } catch (err: any) {
-
       out = { otp: null, source: "none", reason: err?.message || String(err) };
       logger?.error?.({ attempts, err }, "OTP_POLL_EXCEPTION");
     }
@@ -115,9 +156,15 @@ export async function waitForOtpViaAuthServiceDebug(
       );
     }
 
-    if (out.otp && out.otp !== lastOtp) {
+    if (out.otp) {
       logger?.info?.(
-        { attempts, elapsedMs: Date.now() - start, source: out.source, httpStatus: out.httpStatus, pathTried: out.pathTried },
+        {
+          attempts,
+          elapsedMs: Date.now() - start,
+          source: out.source,
+          httpStatus: out.httpStatus,
+          pathTried: out.pathTried,
+        },
         "OTP_POLL_GOT_OTP"
       );
       return out;

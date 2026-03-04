@@ -3,57 +3,66 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseApiRes = parseApiRes;
+exports.validateUsername = validateUsername;
 exports.registerUser = registerUser;
+exports.verifyRegisterOtpWithPayload = verifyRegisterOtpWithPayload;
 exports.verifyRegisterOtpApi = verifyRegisterOtpApi;
+exports.resendRegisterOtpWithPayload = resendRegisterOtpWithPayload;
 exports.resendRegisterOtpApi = resendRegisterOtpApi;
-exports.getDebugOtpFromAuthService = getDebugOtpFromAuthService;
-exports.getDebugRedisOtpFromAuthService = getDebugRedisOtpFromAuthService;
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../config/env");
-function normalizePhone(raw) {
-    let p = String(raw || "").trim();
-    p = p.replace(/\D/g, "");
-    return p;
+const axiosSignature_1 = require("../utils/axiosSignature");
+const phone_1 = require("../utils/phone");
+function parseApiRes(body) {
+    if (!body || typeof body !== "object")
+        return null;
+    if (typeof body.isSucceed === "boolean")
+        return body;
+    return null;
+}
+const authHttp = axios_1.default.create({
+    baseURL: env_1.ENV.KONG_URL,
+    timeout: 20000,
+    headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Client-Type": "mobile",
+        "User-Agent": env_1.ENV.USER_AGENT,
+        "X-Forwarded-Proto": "https",
+    },
+    validateStatus: () => true,
+});
+(0, axiosSignature_1.applySignatureInterceptor)(authHttp);
+async function validateUsername(username, headers) {
+    return authHttp.post("/api/auth/validate-username", { username }, { headers });
 }
 async function registerUser(payload, headers) {
     const body = {
         ...payload,
-        phone: normalizePhone(payload.phone),
+        username: (0, phone_1.normalizePhone)(payload.username),
     };
-    return axios_1.default.post(`${env_1.ENV.BASE_URL}/auth/register`, body, {
-        headers,
-        validateStatus: () => true,
-        timeout: 60000,
-    });
+    return authHttp.post("/api/auth/register", body, { headers });
+}
+async function verifyRegisterOtpWithPayload(payload, headers) {
+    const body = {
+        phone: payload.phone ? (0, phone_1.normalizePhone)(payload.phone) : undefined,
+        username: payload.username ? String(payload.username).trim() : undefined,
+        otp: String(payload.otp || "").trim(),
+    };
+    return authHttp.post("/api/auth/verify-register-otp", body, { headers });
 }
 async function verifyRegisterOtpApi(phone, otp, headers) {
-    return axios_1.default.post(`${env_1.ENV.BASE_URL}/auth/verify-register-otp`, { phone: normalizePhone(phone), otp: String(otp || "").trim() }, {
-        headers,
-        validateStatus: () => true,
-        timeout: 60000,
-    });
+    return verifyRegisterOtpWithPayload({ phone, otp }, headers);
+}
+async function resendRegisterOtpWithPayload(payload, headers) {
+    const body = {
+        phone: payload.phone ? (0, phone_1.normalizePhone)(payload.phone) : undefined,
+        username: payload.username ? String(payload.username).trim() : undefined,
+    };
+    return authHttp.post("/api/auth/resend-otp-register", body, { headers });
 }
 async function resendRegisterOtpApi(phone, headers) {
-    return axios_1.default.post(`${env_1.ENV.BASE_URL}/auth/resend-otp-register`, { phone: normalizePhone(phone) }, {
-        headers,
-        validateStatus: () => true,
-        timeout: 60000,
-    });
-}
-async function getDebugOtpFromAuthService(phone, headers) {
-    const p = normalizePhone(phone);
-    return axios_1.default.get(`${env_1.ENV.BASE_URL}${env_1.ENV.OTP_DEBUG_PATH_PENDING}`, {
-        params: { phone: p },
-        headers,
-        validateStatus: () => true,
-    });
-}
-async function getDebugRedisOtpFromAuthService(phone, headers) {
-    const p = normalizePhone(phone);
-    return axios_1.default.get(`${env_1.ENV.BASE_URL}${env_1.ENV.OTP_DEBUG_PATH_REDIS}`, {
-        params: { phone: p },
-        headers,
-        validateStatus: () => true,
-    });
+    return resendRegisterOtpWithPayload({ phone }, headers);
 }
 //# sourceMappingURL=auth.api.js.map
